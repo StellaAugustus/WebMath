@@ -24,7 +24,10 @@ export default function CompetitionDetailPage({
     {},
   );
 
-  // State dành cho Modal Chỉnh sửa
+  // Trạng thái nút sao chép (lưu ID câu vừa chép)
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  // State Modal Sửa
   const [editingQuestion, setEditingQuestion] = useState<any | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editSolution, setEditSolution] = useState("");
@@ -33,7 +36,6 @@ export default function CompetitionDetailPage({
   const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
-    // 1. Kiểm tra vai trò Admin
     async function checkRole() {
       const {
         data: { session },
@@ -77,25 +79,31 @@ export default function CompetitionDetailPage({
     setLoading(false);
   };
 
-  // Hàm Xóa câu hỏi
-  const handleDeleteQuestion = async (qId: number) => {
-    if (
-      !confirm(
-        "Bạn có chắc chắn muốn xóa bài toán này không? Thao tác này không thể hoàn tác.",
-      )
-    )
-      return;
+  // Tính năng Sao chép câu hỏi
+  const handleCopyQuestion = (q: any, idx: number) => {
+    let textToCopy = `Câu ${idx + 1}: ${q.content}`;
+    if (q.correct_answer) {
+      textToCopy += `\nĐáp án: ${q.correct_answer}`;
+    }
+    if (q.solution) {
+      textToCopy += `\n\nLời giải chi tiết:\n${q.solution}`;
+    }
 
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedId(q.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleDeleteQuestion = async (qId: number) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa bài toán này?")) return;
     const { error } = await supabase.from("questions").delete().eq("id", qId);
     if (error) {
-      alert("Lỗi xóa bài: " + error.message);
+      alert("Lỗi: " + error.message);
     } else {
       setQuestions((prev) => prev.filter((q) => q.id !== qId));
-      alert("Đã xóa câu hỏi thành công!");
     }
   };
 
-  // Mở modal Sửa câu hỏi
   const openEditModal = (q: any) => {
     setEditingQuestion(q);
     setEditContent(q.content);
@@ -104,11 +112,9 @@ export default function CompetitionDetailPage({
     setEditDifficulty(q.difficulty || "Thông hiểu");
   };
 
-  // Lưu chỉnh sửa
   const handleSaveEdit = async () => {
     if (!editingQuestion) return;
     setIsUpdating(true);
-
     const { error } = await supabase
       .from("questions")
       .update({
@@ -137,7 +143,6 @@ export default function CompetitionDetailPage({
         ),
       );
       setEditingQuestion(null);
-      alert("Cập nhật thành công!");
     }
   };
 
@@ -192,20 +197,18 @@ export default function CompetitionDetailPage({
         ← Quay lại danh sách kỳ thi
       </Link>
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 mb-8 shadow-sm">
+      {/* Tiêu đề kỳ thi */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 mb-6 shadow-sm">
         <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
           Năm {competition.year}
         </span>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-3">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">
           {competition.name}
         </h1>
       </div>
 
       {/* Tabs Chủ đề */}
-      <div className="mb-8">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-          Chọn chủ đề câu hỏi:
-        </h2>
+      <div className="mb-6">
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setActiveTopicId("all")}
@@ -236,22 +239,23 @@ export default function CompetitionDetailPage({
         </div>
       </div>
 
-      {/* Danh sách câu hỏi */}
+      {/* Danh sách câu hỏi - Định dạng font chữ và lề chuẩn Word */}
       <div className="space-y-6">
         {filteredQuestions.length === 0 ? (
           <div className="p-8 text-center bg-white rounded-xl border border-slate-200 text-slate-400 text-sm">
-            Chưa có bài toán nào thuộc chủ đề này trong kỳ thi.
+            Chưa có câu hỏi nào thuộc chủ đề này.
           </div>
         ) : (
           filteredQuestions.map((q, idx) => (
             <div
               key={q.id}
-              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm relative"
+              className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow transition"
+              style={{ fontFamily: '"Times New Roman", Times, serif' }} // Font chữ kinh điển của tài liệu Word toán học
             >
-              {/* Header câu hỏi + Nút Sửa/Xóa của Admin */}
-              <div className="flex items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
+              {/* Thanh công cụ mỗi câu */}
+              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-slate-100 font-sans">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900">
+                  <span className="font-bold text-slate-900 text-sm">
                     Câu {idx + 1}
                   </span>
                   {getFormatBadge(q.question_type)}
@@ -262,54 +266,77 @@ export default function CompetitionDetailPage({
                   )}
                 </div>
 
-                {/* Nút thao tác Admin */}
-                {isAdmin && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => openEditModal(q)}
-                      className="text-xs font-medium px-2.5 py-1 rounded bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-600 transition"
-                    >
-                      ✏️ Sửa
-                    </button>
-                    <button
-                      onClick={() => handleDeleteQuestion(q.id)}
-                      className="text-xs font-medium px-2.5 py-1 rounded bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-600 transition"
-                    >
-                      🗑️ Xóa
-                    </button>
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {/* Nút Sao chép câu hỏi */}
+                  <button
+                    onClick={() => handleCopyQuestion(q, idx)}
+                    className={`text-xs px-2.5 py-1 rounded border transition flex items-center gap-1 ${
+                      copiedId === q.id
+                        ? "bg-green-50 text-green-700 border-green-300 font-semibold"
+                        : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                    }`}
+                    title="Sao chép nội dung câu hỏi"
+                  >
+                    {copiedId === q.id ? "✓ Đã chép" : "📋 Sao chép"}
+                  </button>
+
+                  {/* Nút Admin */}
+                  {isAdmin && (
+                    <>
+                      <button
+                        onClick={() => openEditModal(q)}
+                        className="text-xs px-2.5 py-1 rounded bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-600 transition"
+                      >
+                        Sửa
+                      </button>
+                      <button
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        className="text-xs px-2.5 py-1 rounded bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-600 transition"
+                      >
+                        Xóa
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
-              {/* Đề bài */}
-              <div className="text-slate-800 text-base leading-relaxed mb-4">
+              {/* Nội dung đề bài dạng Word */}
+              <div className="text-slate-900 text-[17px] leading-relaxed select-text">
                 <MathRenderer content={q.content} />
               </div>
 
-              {/* Lời giải & Đáp án */}
+              {/* Đáp án & Lời giải */}
               {(q.solution || q.correct_answer) && (
-                <div className="pt-2 border-t border-slate-100">
+                <div className="mt-4 pt-3 border-t border-slate-100 font-sans">
                   <button
                     onClick={() => toggleSolution(q.id)}
                     className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
                   >
                     {showSolution[q.id]
                       ? "▲ Ẩn đáp án & lời giải"
-                      : "▼ Xem đáp án & lời giải chi tiết"}
+                      : "▼ Xem đáp án & lời giải"}
                   </button>
 
                   {showSolution[q.id] && (
-                    <div className="mt-3 space-y-3">
+                    <div className="mt-3 space-y-2">
                       {q.correct_answer && (
-                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
-                          <span className="font-bold">Đáp án đúng:</span>
-                          <span className="font-mono text-sm font-semibold">
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2 font-mono">
+                          <span className="font-bold font-sans">Đáp án:</span>
+                          <span className="text-sm font-semibold">
                             {q.correct_answer}
                           </span>
                         </div>
                       )}
                       {q.solution && (
-                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm text-slate-700">
+                        <div
+                          className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-[16px] text-slate-800"
+                          style={{
+                            fontFamily: '"Times New Roman", Times, serif',
+                          }}
+                        >
+                          <div className="text-xs font-sans font-bold text-slate-400 uppercase tracking-wider mb-1">
+                            Lời giải chi tiết:
+                          </div>
                           <MathRenderer content={q.solution} />
                         </div>
                       )}
@@ -322,9 +349,9 @@ export default function CompetitionDetailPage({
         )}
       </div>
 
-      {/* POPUP MODAL CHỈNH SỬA CÂU HỎI */}
+      {/* Modal Sửa */}
       {editingQuestion && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 font-sans">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-slate-900">
@@ -337,7 +364,6 @@ export default function CompetitionDetailPage({
                 ✕
               </button>
             </div>
-
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
@@ -354,7 +380,6 @@ export default function CompetitionDetailPage({
                   <option value="Vận dụng cao">Vận dụng cao</option>
                 </select>
               </div>
-
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
                   Đề bài:
@@ -366,7 +391,6 @@ export default function CompetitionDetailPage({
                   className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono"
                 />
               </div>
-
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
                   Đáp án đúng:
@@ -375,11 +399,9 @@ export default function CompetitionDetailPage({
                   type="text"
                   value={editAnswer}
                   onChange={(e) => setEditAnswer(e.target.value)}
-                  placeholder="Ví dụ: A hoặc a: Đúng | b: Sai... hoặc 12"
                   className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono"
                 />
               </div>
-
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
                   Lời giải chi tiết:
@@ -391,7 +413,6 @@ export default function CompetitionDetailPage({
                   className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono"
                 />
               </div>
-
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
