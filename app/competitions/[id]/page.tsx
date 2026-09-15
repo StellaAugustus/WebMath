@@ -24,8 +24,12 @@ export default function CompetitionDetailPage({
     {},
   );
 
-  // Trạng thái nút sao chép (lưu ID câu vừa chép)
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+  // 1. Trạng thái 2 nút sao chép riêng biệt
+  const [copiedQuestionId, setCopiedQuestionId] = useState<number | null>(null);
+  const [copiedAnswerId, setCopiedAnswerId] = useState<number | null>(null);
+
+  // 2. Trạng thái sinh lời giải AI
+  const [solvingId, setSolvingId] = useState<number | null>(null);
 
   // State Modal Sửa
   const [editingQuestion, setEditingQuestion] = useState<any | null>(null);
@@ -79,29 +83,77 @@ export default function CompetitionDetailPage({
     setLoading(false);
   };
 
-  // Tính năng Sao chép câu hỏi
-  const handleCopyQuestion = (q: any, idx: number) => {
-    let textToCopy = `Câu ${idx + 1}: ${q.content}`;
-    if (q.correct_answer) {
-      textToCopy += `\nĐáp án: ${q.correct_answer}`;
-    }
-    if (q.solution) {
-      textToCopy += `\n\nLời giải chi tiết:\n${q.solution}`;
-    }
+  // Nút 1: Chỉ sao chép Đề bài
+  const handleCopyQuestionOnly = (q: any, idx: number) => {
+    const text = `Câu ${idx + 1}: ${q.content}`;
+    navigator.clipboard.writeText(text);
+    setCopiedQuestionId(q.id);
+    setTimeout(() => setCopiedQuestionId(null), 2000);
+  };
 
-    navigator.clipboard.writeText(textToCopy);
-    setCopiedId(q.id);
-    setTimeout(() => setCopiedId(null), 2000);
+  // Nút 2: Chỉ sao chép Đáp án & Lời giải
+  const handleCopyAnswerOnly = (q: any, idx: number) => {
+    let text = `[Đáp án & Lời giải Câu ${idx + 1}]`;
+    if (q.correct_answer) text += `\nĐáp án: ${q.correct_answer}`;
+    if (q.solution) text += `\nLời giải chi tiết:\n${q.solution}`;
+    navigator.clipboard.writeText(text);
+    setCopiedAnswerId(q.id);
+    setTimeout(() => setCopiedAnswerId(null), 2000);
+  };
+
+  // Chức năng: Tạo đáp án & lời giải bằng AI
+  const handleGenerateSolution = async (q: any) => {
+    setSolvingId(q.id);
+    try {
+      const res = await fetch("/api/ai-solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: q.content,
+          question_type: q.question_type,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.solution) {
+        // Cập nhật ngay vào Supabase
+        await supabase
+          .from("questions")
+          .update({
+            solution: data.solution,
+            correct_answer: data.correct_answer || q.correct_answer,
+          })
+          .eq("id", q.id);
+
+        // Cập nhật State giao diện
+        setQuestions((prev) =>
+          prev.map((item) =>
+            item.id === q.id
+              ? {
+                  ...item,
+                  solution: data.solution,
+                  correct_answer: data.correct_answer || item.correct_answer,
+                }
+              : item,
+          ),
+        );
+        setShowSolution((prev) => ({ ...prev, [q.id]: true }));
+        alert("Đã tạo xong lời giải chi tiết bằng AI!");
+      } else {
+        alert(
+          "Không thể tạo lời giải: " + (data.error || "Lỗi không xác định"),
+        );
+      }
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    }
+    setSolvingId(null);
   };
 
   const handleDeleteQuestion = async (qId: number) => {
     if (!confirm("Bạn có chắc chắn muốn xóa bài toán này?")) return;
     const { error } = await supabase.from("questions").delete().eq("id", qId);
-    if (error) {
-      alert("Lỗi: " + error.message);
-    } else {
-      setQuestions((prev) => prev.filter((q) => q.id !== qId));
-    }
+    if (!error) setQuestions((prev) => prev.filter((q) => q.id !== qId));
   };
 
   const openEditModal = (q: any) => {
@@ -126,9 +178,7 @@ export default function CompetitionDetailPage({
       .eq("id", editingQuestion.id);
 
     setIsUpdating(false);
-    if (error) {
-      alert("Lỗi cập nhật: " + error.message);
-    } else {
+    if (!error) {
       setQuestions((prev) =>
         prev.map((q) =>
           q.id === editingQuestion.id
@@ -155,26 +205,6 @@ export default function CompetitionDetailPage({
       ? questions
       : questions.filter((q) => q.topic_id === activeTopicId);
 
-  const getFormatBadge = (type: string) => {
-    if (type === "true_false")
-      return (
-        <span className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
-          Đúng / Sai
-        </span>
-      );
-    if (type === "short_ans")
-      return (
-        <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200">
-          Trả lời ngắn
-        </span>
-      );
-    return (
-      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
-        Trắc nghiệm
-      </span>
-    );
-  };
-
   if (loading)
     return (
       <div className="py-20 text-center text-slate-400 text-sm">
@@ -197,7 +227,6 @@ export default function CompetitionDetailPage({
         ← Quay lại danh sách kỳ thi
       </Link>
 
-      {/* Tiêu đề kỳ thi */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 mb-6 shadow-sm">
         <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
           Năm {competition.year}
@@ -208,106 +237,105 @@ export default function CompetitionDetailPage({
       </div>
 
       {/* Tabs Chủ đề */}
-      <div className="mb-6">
-        <div className="flex flex-wrap gap-2">
+      <div className="mb-6 flex flex-wrap gap-2">
+        <button
+          onClick={() => setActiveTopicId("all")}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition ${
+            activeTopicId === "all"
+              ? "bg-slate-900 text-white"
+              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+          }`}
+        >
+          Tất cả ({questions.length})
+        </button>
+        {topics.map((t) => (
           <button
-            onClick={() => setActiveTopicId("all")}
+            key={t.id}
+            onClick={() => setActiveTopicId(t.id)}
             className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition ${
-              activeTopicId === "all"
-                ? "bg-slate-900 text-white"
+              activeTopicId === t.id
+                ? "bg-blue-600 text-white"
                 : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
             }`}
           >
-            Tất cả ({questions.length})
+            {t.name} ({questions.filter((q) => q.topic_id === t.id).length})
           </button>
-          {topics.map((t) => {
-            const count = questions.filter((q) => q.topic_id === t.id).length;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setActiveTopicId(t.id)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition ${
-                  activeTopicId === t.id
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                {t.name} ({count})
-              </button>
-            );
-          })}
-        </div>
+        ))}
       </div>
 
-      {/* Danh sách câu hỏi - Định dạng font chữ và lề chuẩn Word */}
+      {/* Danh sách bài toán */}
       <div className="space-y-6">
-        {filteredQuestions.length === 0 ? (
-          <div className="p-8 text-center bg-white rounded-xl border border-slate-200 text-slate-400 text-sm">
-            Chưa có câu hỏi nào thuộc chủ đề này.
-          </div>
-        ) : (
-          filteredQuestions.map((q, idx) => (
-            <div
-              key={q.id}
-              className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow transition"
-              style={{ fontFamily: '"Times New Roman", Times, serif' }} // Font chữ kinh điển của tài liệu Word toán học
-            >
-              {/* Thanh công cụ mỗi câu */}
-              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-slate-100 font-sans">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900 text-sm">
-                    Câu {idx + 1}
-                  </span>
-                  {getFormatBadge(q.question_type)}
-                  {q.difficulty && (
-                    <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                      {q.difficulty}
-                    </span>
-                  )}
-                </div>
+        {filteredQuestions.map((q, idx) => (
+          <div
+            key={q.id}
+            className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm"
+            style={{ fontFamily: '"Times New Roman", Times, serif' }}
+          >
+            {/* Header câu hỏi */}
+            <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-slate-100 font-sans">
+              <span className="font-bold text-slate-900 text-sm">
+                Câu {idx + 1}
+              </span>
 
-                <div className="flex items-center gap-1.5">
-                  {/* Nút Sao chép câu hỏi */}
+              <div className="flex items-center gap-1.5">
+                {/* 2 NÚT SAO CHÉP TÁCH BIỆT */}
+                <button
+                  onClick={() => handleCopyQuestionOnly(q, idx)}
+                  className={`text-xs px-2.5 py-1 rounded border transition flex items-center gap-1 ${
+                    copiedQuestionId === q.id
+                      ? "bg-green-50 text-green-700 border-green-300 font-semibold"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                  title="Sao chép nội dung đề bài"
+                >
+                  {copiedQuestionId === q.id ? "✓ Đã chép đề" : "📋 Chép đề"}
+                </button>
+
+                {(q.solution || q.correct_answer) && (
                   <button
-                    onClick={() => handleCopyQuestion(q, idx)}
+                    onClick={() => handleCopyAnswerOnly(q, idx)}
                     className={`text-xs px-2.5 py-1 rounded border transition flex items-center gap-1 ${
-                      copiedId === q.id
+                      copiedAnswerId === q.id
                         ? "bg-green-50 text-green-700 border-green-300 font-semibold"
                         : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                     }`}
-                    title="Sao chép nội dung câu hỏi"
+                    title="Sao chép đáp án và lời giải"
                   >
-                    {copiedId === q.id ? "✓ Đã chép" : "📋 Sao chép"}
+                    {copiedAnswerId === q.id
+                      ? "✓ Đã chép giải"
+                      : "📝 Chép đáp án"}
                   </button>
+                )}
 
-                  {/* Nút Admin */}
-                  {isAdmin && (
-                    <>
-                      <button
-                        onClick={() => openEditModal(q)}
-                        className="text-xs px-2.5 py-1 rounded bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-600 transition"
-                      >
-                        Sửa
-                      </button>
-                      <button
-                        onClick={() => handleDeleteQuestion(q.id)}
-                        className="text-xs px-2.5 py-1 rounded bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-600 transition"
-                      >
-                        Xóa
-                      </button>
-                    </>
-                  )}
-                </div>
+                {/* Nút Admin */}
+                {isAdmin && (
+                  <>
+                    <button
+                      onClick={() => openEditModal(q)}
+                      className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-600"
+                    >
+                      Sửa
+                    </button>
+                    <button
+                      onClick={() => handleDeleteQuestion(q.id)}
+                      className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-600"
+                    >
+                      Xóa
+                    </button>
+                  </>
+                )}
               </div>
+            </div>
 
-              {/* Nội dung đề bài dạng Word */}
-              <div className="text-slate-900 text-[17px] leading-relaxed select-text">
-                <MathRenderer content={q.content} />
-              </div>
+            {/* Nội dung đề bài */}
+            <div className="text-slate-900 text-[17px] leading-relaxed select-text">
+              <MathRenderer content={q.content} />
+            </div>
 
-              {/* Đáp án & Lời giải */}
-              {(q.solution || q.correct_answer) && (
-                <div className="mt-4 pt-3 border-t border-slate-100 font-sans">
+            {/* Phần Lời giải hoặc Nút Tạo lời giải AI */}
+            <div className="mt-4 pt-3 border-t border-slate-100 font-sans">
+              {q.solution || q.correct_answer ? (
+                <div>
                   <button
                     onClick={() => toggleSolution(q.id)}
                     className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
@@ -334,36 +362,43 @@ export default function CompetitionDetailPage({
                             fontFamily: '"Times New Roman", Times, serif',
                           }}
                         >
-                          <div className="text-xs font-sans font-bold text-slate-400 uppercase tracking-wider mb-1">
-                            Lời giải chi tiết:
-                          </div>
                           <MathRenderer content={q.solution} />
                         </div>
                       )}
                     </div>
                   )}
                 </div>
+              ) : (
+                /* CHỨC NĂNG TẠO ĐÁP ÁN NẾU CHƯA CÓ LỜI GIẢI */
+                <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-3 rounded-xl">
+                  <span className="text-xs text-amber-800">
+                    Câu này chưa có lời giải chi tiết.
+                  </span>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleGenerateSolution(q)}
+                      disabled={solvingId === q.id}
+                      className="text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium px-3 py-1.5 rounded-lg transition disabled:bg-gray-400 flex items-center gap-1"
+                    >
+                      {solvingId === q.id
+                        ? "⏳ Đang giải..."
+                        : "✨ Tạo lời giải AI"}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
-          ))
-        )}
+          </div>
+        ))}
       </div>
 
       {/* Modal Sửa */}
       {editingQuestion && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 font-sans">
           <div className="bg-white rounded-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-slate-900">
-                Chỉnh sửa bài toán #{editingQuestion.id}
-              </h3>
-              <button
-                onClick={() => setEditingQuestion(null)}
-                className="text-slate-400 hover:text-slate-700 text-xl font-bold"
-              >
-                ✕
-              </button>
-            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-4">
+              Chỉnh sửa bài toán #{editingQuestion.id}
+            </h3>
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
@@ -372,7 +407,7 @@ export default function CompetitionDetailPage({
                 <select
                   value={editDifficulty}
                   onChange={(e) => setEditDifficulty(e.target.value)}
-                  className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
+                  className="w-full p-2 border rounded-lg text-sm bg-white"
                 >
                   <option value="Nhận biết">Nhận biết</option>
                   <option value="Thông hiểu">Thông hiểu</option>
@@ -388,46 +423,44 @@ export default function CompetitionDetailPage({
                   rows={5}
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono"
+                  className="w-full p-2.5 border rounded-lg text-sm font-mono"
                 />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Đáp án đúng:
+                  Đáp án:
                 </label>
                 <input
                   type="text"
                   value={editAnswer}
                   onChange={(e) => setEditAnswer(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono"
+                  className="w-full p-2.5 border rounded-lg text-sm font-mono"
                 />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Lời giải chi tiết:
+                  Lời giải:
                 </label>
                 <textarea
                   rows={5}
                   value={editSolution}
                   onChange={(e) => setEditSolution(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-mono"
+                  className="w-full p-2.5 border rounded-lg text-sm font-mono"
                 />
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2">
                 <button
-                  type="button"
                   onClick={() => setEditingQuestion(null)}
-                  className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+                  className="px-4 py-2 border rounded-lg text-sm"
                 >
                   Hủy
                 </button>
                 <button
-                  type="button"
                   onClick={handleSaveEdit}
                   disabled={isUpdating}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm"
                 >
-                  {isUpdating ? "Đang lưu..." : "Lưu thay đổi"}
+                  {isUpdating ? "Đang lưu..." : "Lưu"}
                 </button>
               </div>
             </div>
