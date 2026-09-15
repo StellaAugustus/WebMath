@@ -14,12 +14,10 @@ export default function AdminPage() {
   const [tab, setTab] = useState<"question" | "competition" | "topic">(
     "question",
   );
-
-  // Danh mục
   const [topics, setTopics] = useState<any[]>([]);
   const [competitions, setCompetitions] = useState<any[]>([]);
 
-  // 1. Quản lý trạng thái Thêm câu hỏi
+  // Form states
   const [qType, setQType] = useState<"mcq" | "true_false" | "short_ans">("mcq");
   const [qTitle, setQTitle] = useState("");
   const [qContent, setQContent] = useState("");
@@ -28,23 +26,24 @@ export default function AdminPage() {
   const [qCompId, setQCompId] = useState("");
   const [qSolution, setQSolution] = useState("");
 
-  // Các trường cho Trắc nghiệm 4 lựa chọn (MCQ)
   const [optA, setOptA] = useState("");
   const [optB, setOptB] = useState("");
   const [optC, setOptC] = useState("");
   const [optD, setOptD] = useState("");
   const [mcqAnswer, setMcqAnswer] = useState("A");
 
-  // Các trường cho dạng Đúng / Sai
   const [tfItems, setTfItems] = useState([
     { text: "", isTrue: true },
     { text: "", isTrue: false },
     { text: "", isTrue: false },
     { text: "", isTrue: true },
   ]);
-
-  // Trường cho dạng Trả lời ngắn
   const [shortAns, setShortAns] = useState("");
+
+  // OCR Image State
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageMime, setImageMime] = useState<string>("image/jpeg");
+  const [ocrLoading, setOcrLoading] = useState(false);
 
   // Cuộc thi & Chủ đề
   const [cName, setCName] = useState("");
@@ -86,12 +85,53 @@ export default function AdminPage() {
     if (cRes.data) setCompetitions(cRes.data);
   };
 
-  // Tổng hợp nội dung đầy đủ để lưu và preview
+  // Xử lý chọn ảnh hoặc dán ảnh (Ctrl+V)
+  const handleImageUpload = (file: File) => {
+    setImageMime(file.type || "image/jpeg");
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // CHỨC NĂNG CHUYỂN ẢNH SANG LATEX
+  const handleConvertImageToLatex = async () => {
+    if (!imagePreview)
+      return alert("Vui lòng chọn hoặc dán ảnh bài toán trước!");
+    setOcrLoading(true);
+
+    try {
+      const base64Data = imagePreview.split(",");
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64Data, mimeType: imageMime }),
+      });
+
+      const data = await res.json();
+      if (data.content) {
+        setQContent(data.content);
+        if (data.title) setQTitle(data.title);
+        if (data.question_type) setQType(data.question_type);
+        alert("Đã chuyển đổi ảnh sang mã LaTeX thành công!");
+      } else {
+        alert(
+          "Lỗi nhận diện: " +
+            (data.error || "Vui lòng thử lại với ảnh rõ hơn."),
+        );
+      }
+    } catch (err: any) {
+      alert("Lỗi: " + err.message);
+    }
+    setOcrLoading(false);
+  };
+
   const buildFullContent = () => {
     let full = qContent.trim();
     if (qType === "mcq" && (optA || optB || optC || optD)) {
       full += `\n\n**A.** ${optA}\n\n**B.** ${optB}\n\n**C.** ${optC}\n\n**D.** ${optD}`;
-    } else if (qType === "true_false") {
+    } else if (qType === "true_false" && tfItems.some((i) => i.text)) {
       const labels = ["a", "b", "c", "d"];
       full +=
         "\n\n" +
@@ -114,21 +154,20 @@ export default function AdminPage() {
     return "";
   };
 
-  const handleAddQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!qContent.trim()) return alert("Vui lòng nhập đề bài!");
+  const handleAddQuestion = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const finalContent = buildFullContent();
+    if (!finalContent.trim())
+      return alert("Vui lòng nhập đề bài hoặc chuyển từ ảnh!");
     setLoading(true);
-
-    const fullContent = buildFullContent();
-    const finalAnswer = buildCorrectAnswer();
 
     const { error } = await supabase.from("questions").insert([
       {
         title: qTitle || null,
-        content: fullContent,
+        content: finalContent,
         solution: qSolution || null,
         question_type: qType,
-        correct_answer: finalAnswer,
+        correct_answer: buildCorrectAnswer(),
         difficulty: qDifficulty,
         topic_id: qTopicId ? Number(qTopicId) : null,
         competition_id: qCompId ? Number(qCompId) : null,
@@ -139,7 +178,7 @@ export default function AdminPage() {
     if (error) {
       alert("Lỗi: " + error.message);
     } else {
-      alert("Đã thêm bài toán thành công!");
+      alert("Đã thêm bài toán vào ngân hàng đề thành công!");
       setQTitle("");
       setQContent("");
       setQSolution("");
@@ -148,12 +187,7 @@ export default function AdminPage() {
       setOptC("");
       setOptD("");
       setShortAns("");
-      setTfItems([
-        { text: "", isTrue: true },
-        { text: "", isTrue: false },
-        { text: "", isTrue: false },
-        { text: "", isTrue: true },
-      ]);
+      setImagePreview(null);
     }
   };
 
@@ -161,17 +195,12 @@ export default function AdminPage() {
     e.preventDefault();
     if (!cName.trim()) return alert("Vui lòng nhập tên cuộc thi!");
     setLoading(true);
-    const { error } = await supabase.from("competitions").insert([
-      {
-        name: cName,
-        year: Number(cYear),
-        exam_type: cType,
-      },
-    ]);
+    const { error } = await supabase
+      .from("competitions")
+      .insert([{ name: cName, year: Number(cYear), exam_type: cType }]);
     setLoading(false);
-    if (error) alert("Lỗi: " + error.message);
-    else {
-      alert("Đã thêm cuộc thi thành công!");
+    if (!error) {
+      alert("Đã thêm cuộc thi!");
       setCName("");
       loadCategories();
     }
@@ -182,29 +211,23 @@ export default function AdminPage() {
     if (!tName.trim()) return alert("Vui lòng nhập tên chủ đề!");
     setLoading(true);
     const slug = tName.toLowerCase().replace(/[^a-z0-9]/g, "-");
-    const { error } = await supabase.from("topics").insert([
-      {
-        name: tName,
-        slug: slug || "topic-" + Date.now(),
-      },
-    ]);
+    const { error } = await supabase
+      .from("topics")
+      .insert([{ name: tName, slug: slug || "topic-" + Date.now() }]);
     setLoading(false);
-    if (error) alert("Lỗi: " + error.message);
-    else {
-      alert("Đã thêm chủ đề thành công!");
+    if (!error) {
+      alert("Đã thêm chủ đề!");
       setTName("");
       loadCategories();
     }
   };
 
-  if (authChecking) {
+  if (authChecking)
     return (
       <div className="py-20 text-center text-slate-400 text-sm">
         Đang xác thực quyền Admin...
       </div>
     );
-  }
-
   if (!currentUser || userRole !== "admin") {
     return (
       <main className="max-w-md mx-auto my-20 p-8 bg-white border border-slate-200 rounded-2xl shadow-sm text-center">
@@ -278,297 +301,318 @@ export default function AdminPage() {
       </div>
 
       {tab === "question" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Cột Form */}
-          <form
-            onSubmit={handleAddQuestion}
-            className="space-y-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm"
-          >
-            {/* Lựa chọn Định dạng câu hỏi */}
-            <div>
-              <label className="block text-xs font-semibold uppercase text-slate-500 mb-2">
-                Định dạng câu hỏi:
-              </label>
+        <div className="space-y-6">
+          {/* KHU VỰC CHUYỂN ĐỔI HÌNH ẢNH SANG LATEX (OCR AI) */}
+          <div className="bg-blue-50/60 border border-blue-200 rounded-2xl p-5 shadow-sm">
+            <h2 className="text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
+              <span>📸</span> Chuyển đổi từ hình ảnh sang mã LaTeX (Math OCR)
+            </h2>
+            <p className="text-xs text-blue-700 mb-3">
+              Tải ảnh bài toán hoặc chụp màn hình rồi bấm{" "}
+              <strong>Ctrl + V</strong> để dán ảnh trực tiếp vào đây.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  e.target.files?.[0] && handleImageUpload(e.target.files[0])
+                }
+                className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+              />
+
+              {imagePreview && (
+                <button
+                  type="button"
+                  onClick={handleConvertImageToLatex}
+                  disabled={ocrLoading}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 transition disabled:bg-gray-400 flex items-center gap-1.5"
+                >
+                  {ocrLoading
+                    ? "⏳ Đang phân tích ảnh..."
+                    : "⚡ Chuyển ảnh sang mã LaTeX"}
+                </button>
+              )}
+            </div>
+
+            {imagePreview && (
+              <div className="mt-3 flex items-center gap-3">
+                <img
+                  src={imagePreview}
+                  alt="Xem trước"
+                  className="max-h-24 rounded border border-slate-300 shadow-sm object-contain"
+                />
+                <button
+                  onClick={() => setImagePreview(null)}
+                  className="text-xs text-red-600 hover:underline"
+                >
+                  Xóa ảnh
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Form nhập liệu */}
+            <form
+              onSubmit={handleAddQuestion}
+              className="space-y-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm"
+            >
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setQType("mcq")}
-                  className={`py-2 text-xs font-medium rounded-lg border transition ${
-                    qType === "mcq"
-                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                  }`}
+                  className={`py-2 text-xs font-medium rounded-lg border ${qType === "mcq" ? "bg-blue-600 text-white" : "bg-white text-slate-700"}`}
                 >
                   Trắc nghiệm 4 ý
                 </button>
                 <button
                   type="button"
                   onClick={() => setQType("true_false")}
-                  className={`py-2 text-xs font-medium rounded-lg border transition ${
-                    qType === "true_false"
-                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                  }`}
+                  className={`py-2 text-xs font-medium rounded-lg border ${qType === "true_false" ? "bg-blue-600 text-white" : "bg-white text-slate-700"}`}
                 >
                   Đúng / Sai
                 </button>
                 <button
                   type="button"
                   onClick={() => setQType("short_ans")}
-                  className={`py-2 text-xs font-medium rounded-lg border transition ${
-                    qType === "short_ans"
-                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                  }`}
+                  className={`py-2 text-xs font-medium rounded-lg border ${qType === "short_ans" ? "bg-blue-600 text-white" : "bg-white text-slate-700"}`}
                 >
                   Trả lời ngắn
                 </button>
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Kỳ thi:
-                </label>
-                <select
-                  value={qCompId}
-                  onChange={(e) => setQCompId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-blue-600"
-                >
-                  <option value="">-- Chọn kỳ thi --</option>
-                  {competitions.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.year})
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                    Kỳ thi:
+                  </label>
+                  <select
+                    value={qCompId}
+                    onChange={(e) => setQCompId(e.target.value)}
+                    className="w-full p-2.5 border rounded-lg text-sm bg-white"
+                  >
+                    <option value="">-- Chọn kỳ thi --</option>
+                    {competitions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.year})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                    Chủ đề:
+                  </label>
+                  <select
+                    value={qTopicId}
+                    onChange={(e) => setQTopicId(e.target.value)}
+                    className="w-full p-2.5 border rounded-lg text-sm bg-white"
+                  >
+                    <option value="">-- Chọn chủ đề --</option>
+                    {topics.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                    Tiêu đề:
+                  </label>
+                  <input
+                    type="text"
+                    value={qTitle}
+                    onChange={(e) => setQTitle(e.target.value)}
+                    placeholder="Tên bài toán..."
+                    className="w-full p-2.5 border rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                    Mức độ:
+                  </label>
+                  <select
+                    value={qDifficulty}
+                    onChange={(e) => setQDifficulty(e.target.value)}
+                    className="w-full p-2.5 border rounded-lg text-sm bg-white"
+                  >
+                    <option value="Nhận biết">Nhận biết</option>
+                    <option value="Thông hiểu">Thông hiểu</option>
+                    <option value="Vận dụng">Vận dụng</option>
+                    <option value="Vận dụng cao">Vận dụng cao</option>
+                  </select>
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Chủ đề:
+                  Đề bài (mã LaTeX):
                 </label>
-                <select
-                  value={qTopicId}
-                  onChange={(e) => setQTopicId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-blue-600"
-                >
-                  <option value="">-- Chọn chủ đề --</option>
-                  {topics.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Tiêu đề bài:
-                </label>
-                <input
-                  type="text"
-                  value={qTitle}
-                  onChange={(e) => setQTitle(e.target.value)}
-                  placeholder="Ví dụ: Cực trị hàm số"
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-blue-600"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Mức độ:
-                </label>
-                <select
-                  value={qDifficulty}
-                  onChange={(e) => setQDifficulty(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-blue-600"
-                >
-                  <option value="Nhận biết">Nhận biết</option>
-                  <option value="Thông hiểu">Thông hiểu</option>
-                  <option value="Vận dụng">Vận dụng</option>
-                  <option value="Vận dụng cao">Vận dụng cao</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Nội dung đề bài */}
-            <div>
-              <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                {qType === "true_false"
-                  ? "Ngữ cảnh chung / Đề bài:"
-                  : "Đề bài (hỗ trợ công thức $...$):"}
-              </label>
-              <textarea
-                rows={4}
-                value={qContent}
-                onChange={(e) => setQContent(e.target.value)}
-                placeholder="Cho hàm số $y = f(x)$..."
-                className="w-full p-3 border border-slate-200 rounded-lg text-sm font-mono outline-blue-600"
-                required
-              />
-            </div>
-
-            {/* 1. Nếu là Trắc nghiệm 4 lựa chọn */}
-            {qType === "mcq" && (
-              <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-xs font-semibold uppercase text-slate-500">
-                  4 Phương án & Đáp án đúng:
-                </span>
-                {(["A", "B", "C", "D"] as const).map((opt) => {
-                  const val =
-                    opt === "A"
-                      ? optA
-                      : opt === "B"
-                        ? optB
-                        : opt === "C"
-                          ? optC
-                          : optD;
-                  const setVal =
-                    opt === "A"
-                      ? setOptA
-                      : opt === "B"
-                        ? setOptB
-                        : opt === "C"
-                          ? setOptC
-                          : setOptD;
-                  return (
-                    <div key={opt} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="mcqAns"
-                        checked={mcqAnswer === opt}
-                        onChange={() => setMcqAnswer(opt)}
-                        className="w-4 h-4 text-blue-600"
-                      />
-                      <span className="text-xs font-bold text-slate-700 w-4">
-                        {opt}.
-                      </span>
-                      <input
-                        type="text"
-                        value={val}
-                        onChange={(e) => setVal(e.target.value)}
-                        placeholder={`Nội dung đáp án ${opt}...`}
-                        className="flex-1 p-2 border border-slate-200 rounded-lg text-xs bg-white"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* 2. Nếu là Đúng / Sai */}
-            {qType === "true_false" && (
-              <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-xs font-semibold uppercase text-slate-500">
-                  4 Mệnh đề Đúng / Sai:
-                </span>
-                {["a", "b", "c", "d"].map((label, idx) => (
-                  <div key={label} className="flex items-start gap-2">
-                    <span className="text-xs font-bold text-slate-700 pt-2 w-4">
-                      {label})
-                    </span>
-                    <input
-                      type="text"
-                      value={tfItems[idx].text}
-                      onChange={(e) => {
-                        const next = [...tfItems];
-                        next[idx].text = e.target.value;
-                        setTfItems(next);
-                      }}
-                      placeholder={`Mệnh đề ${label}...`}
-                      className="flex-1 p-2 border border-slate-200 rounded-lg text-xs bg-white"
-                    />
-                    <select
-                      value={tfItems[idx].isTrue ? "true" : "false"}
-                      onChange={(e) => {
-                        const next = [...tfItems];
-                        next[idx].isTrue = e.target.value === "true";
-                        setTfItems(next);
-                      }}
-                      className={`p-2 border rounded-lg text-xs font-semibold ${
-                        tfItems[idx].isTrue
-                          ? "bg-green-50 text-green-700 border-green-200"
-                          : "bg-red-50 text-red-700 border-red-200"
-                      }`}
-                    >
-                      <option value="true">Đúng</option>
-                      <option value="false">Sai</option>
-                    </select>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 3. Nếu là Trả lời ngắn */}
-            {qType === "short_ans" && (
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Đáp án chính xác (Số hoặc giá trị ngắn):
-                </label>
-                <input
-                  type="text"
-                  value={shortAns}
-                  onChange={(e) => setShortAns(e.target.value)}
-                  placeholder="Ví dụ: 3.5 hoặc -12"
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white font-mono"
+                <textarea
+                  rows={5}
+                  value={qContent}
+                  onChange={(e) => setQContent(e.target.value)}
+                  placeholder="Nội dung đề bài..."
+                  className="w-full p-3 border rounded-lg text-sm font-mono"
                   required
                 />
               </div>
-            )}
 
-            {/* Lời giải */}
-            <div>
-              <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                Lời giải chi tiết:
-              </label>
-              <textarea
-                rows={4}
-                value={qSolution}
-                onChange={(e) => setQSolution(e.target.value)}
-                placeholder="Lời giải chi tiết (hỗ trợ LaTeX)..."
-                className="w-full p-3 border border-slate-200 rounded-lg text-sm font-mono outline-blue-600"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition"
-            >
-              {loading ? "Đang lưu..." : "Lưu bài toán vào ngân hàng"}
-            </button>
-          </form>
-
-          {/* Cột Xem trước (Preview) */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-              Xem trước trực tiếp:
-            </h3>
-            <div className="space-y-4 overflow-y-auto max-h-[600px] pr-2">
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <div className="text-xs font-semibold text-slate-400 mb-2">
-                  Đề bài hiển thị:
+              {qType === "mcq" && (
+                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border">
+                  <span className="text-xs font-semibold uppercase text-slate-500">
+                    4 Phương án & Đáp án:
+                  </span>
+                  {(["A", "B", "C", "D"] as const).map((opt) => {
+                    const val =
+                      opt === "A"
+                        ? optA
+                        : opt === "B"
+                          ? optB
+                          : opt === "C"
+                            ? optC
+                            : optD;
+                    const setVal =
+                      opt === "A"
+                        ? setOptA
+                        : opt === "B"
+                          ? setOptB
+                          : opt === "C"
+                            ? setOptC
+                            : setOptD;
+                    return (
+                      <div key={opt} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="mcqAns"
+                          checked={mcqAnswer === opt}
+                          onChange={() => setMcqAnswer(opt)}
+                        />
+                        <span className="text-xs font-bold w-4">{opt}.</span>
+                        <input
+                          type="text"
+                          value={val}
+                          onChange={(e) => setVal(e.target.value)}
+                          placeholder={`Phương án ${opt}...`}
+                          className="flex-1 p-2 border rounded-lg text-xs bg-white"
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
-                <MathRenderer
-                  content={buildFullContent() || "*(Chưa có nội dung)*"}
+              )}
+
+              {qType === "true_false" && (
+                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border">
+                  {["a", "b", "c", "d"].map((label, idx) => (
+                    <div key={label} className="flex items-center gap-2">
+                      <span className="text-xs font-bold w-4">{label})</span>
+                      <input
+                        type="text"
+                        value={tfItems[idx].text}
+                        onChange={(e) => {
+                          const next = [...tfItems];
+                          next[idx].text = e.target.value;
+                          setTfItems(next);
+                        }}
+                        placeholder={`Mệnh đề ${label}...`}
+                        className="flex-1 p-2 border rounded-lg text-xs bg-white"
+                      />
+                      <select
+                        value={tfItems[idx].isTrue ? "true" : "false"}
+                        onChange={(e) => {
+                          const next = [...tfItems];
+                          next[idx].isTrue = e.target.value === "true";
+                          setTfItems(next);
+                        }}
+                        className="p-2 border rounded-lg text-xs"
+                      >
+                        <option value="true">Đúng</option>
+                        <option value="false">Sai</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {qType === "short_ans" && (
+                <div className="p-3 bg-slate-50 rounded-xl border">
+                  <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                    Đáp án:
+                  </label>
+                  <input
+                    type="text"
+                    value={shortAns}
+                    onChange={(e) => setShortAns(e.target.value)}
+                    placeholder="Ví dụ: 2.5"
+                    className="w-full p-2.5 border rounded-lg text-sm bg-white font-mono"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
+                  Lời giải:
+                </label>
+                <textarea
+                  rows={4}
+                  value={qSolution}
+                  onChange={(e) => setQSolution(e.target.value)}
+                  placeholder="Lời giải chi tiết..."
+                  className="w-full p-3 border rounded-lg text-sm font-mono"
                 />
               </div>
-              <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
-                <div className="text-xs font-semibold text-emerald-700 mb-1">
-                  Đáp án ghi nhận:
+
+              {/* NÚT THÊM CÂU HỎI VÀO HỆ THỐNG */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 transition"
+              >
+                {loading
+                  ? "Đang lưu vào ngân hàng đề..."
+                  : "+ Thêm câu hỏi này vào ngân hàng đề"}
+              </button>
+            </form>
+
+            {/* Cột Xem trước trực tiếp */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                Xem trước trực tiếp:
+              </h3>
+              <div
+                className="space-y-4 overflow-y-auto max-h-[600px] pr-2"
+                style={{ fontFamily: '"Times New Roman", Times, serif' }}
+              >
+                <div className="p-4 bg-slate-50 rounded-xl border">
+                  <div className="text-xs font-sans font-bold text-slate-400 mb-2">
+                    Đề bài:
+                  </div>
+                  <MathRenderer
+                    content={buildFullContent() || "*(Nội dung đề bài)*"}
+                  />
                 </div>
-                <div className="text-sm font-bold text-emerald-900">
-                  {buildCorrectAnswer() || "Chưa thiết lập"}
-                </div>
-              </div>
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <div className="text-xs font-semibold text-slate-400 mb-1">
-                  Lời giải:
-                </div>
-                <MathRenderer content={qSolution || "*(Chưa có lời giải)*"} />
+                {buildCorrectAnswer() && (
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs font-sans text-emerald-800">
+                    <span className="font-bold">Đáp án:</span>{" "}
+                    {buildCorrectAnswer()}
+                  </div>
+                )}
+                {qSolution && (
+                  <div className="p-4 bg-slate-50 rounded-xl border">
+                    <div className="text-xs font-sans font-bold text-slate-400 mb-1">
+                      Lời giải:
+                    </div>
+                    <MathRenderer content={qSolution} />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -587,8 +631,8 @@ export default function AdminPage() {
                 type="text"
                 value={cName}
                 onChange={(e) => setCName(e.target.value)}
-                placeholder="Ví dụ: Khảo sát Chuyên Khoa Học Tự Nhiên"
-                className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-blue-600"
+                placeholder="Thi thử Chuyên KHTN"
+                className="w-full p-2.5 border rounded-lg text-sm"
                 required
               />
             </div>
@@ -601,33 +645,32 @@ export default function AdminPage() {
                   type="number"
                   value={cYear}
                   onChange={(e) => setCYear(Number(e.target.value))}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-blue-600"
+                  className="w-full p-2.5 border rounded-lg text-sm"
                   required
                 />
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-500 mb-1">
-                  Loại kỳ thi:
+                  Loại:
                 </label>
                 <select
                   value={cType}
                   onChange={(e) => setCType(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-blue-600"
+                  className="w-full p-2.5 border rounded-lg text-sm bg-white"
                 >
                   <option value="THPT">Tốt nghiệp THPT</option>
                   <option value="ĐGTD">Đánh giá tư duy</option>
                   <option value="ĐGNL">Đánh giá năng lực</option>
                   <option value="HSG">Học sinh giỏi</option>
-                  <option value="Khác">Khác</option>
                 </select>
               </div>
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-slate-900 text-white rounded-lg font-medium text-sm hover:bg-slate-800 transition"
+              className="w-full py-2.5 bg-slate-900 text-white rounded-lg font-medium text-sm"
             >
-              {loading ? "Đang lưu..." : "+ Tạo cuộc thi mới"}
+              + Tạo cuộc thi
             </button>
           </form>
         </div>
@@ -645,17 +688,17 @@ export default function AdminPage() {
                 type="text"
                 value={tName}
                 onChange={(e) => setTName(e.target.value)}
-                placeholder="Ví dụ: Mặt cầu & Khối tròn xoay"
-                className="w-full p-2.5 border border-slate-200 rounded-lg text-sm outline-blue-600"
+                placeholder="Hình học giải tích Oxyz"
+                className="w-full p-2.5 border rounded-lg text-sm"
                 required
               />
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-slate-900 text-white rounded-lg font-medium text-sm hover:bg-slate-800 transition"
+              className="w-full py-2.5 bg-slate-900 text-white rounded-lg font-medium text-sm"
             >
-              {loading ? "Đang lưu..." : "+ Tạo chủ đề mới"}
+              + Tạo chủ đề
             </button>
           </form>
         </div>
