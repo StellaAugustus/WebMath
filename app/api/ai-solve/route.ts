@@ -7,28 +7,29 @@ export async function POST(req: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Chưa cấu hình GEMINI_API_KEY" },
+        { error: "Chưa cấu hình GEMINI_API_KEY trong biến môi trường." },
         { status: 500 },
       );
     }
 
     const prompt = `
-Bạn là giáo viên chuyên bồi dưỡng Toán 12 THPT. Hãy giải chi tiết bài toán sau đây bằng tiếng Việt.
+Bạn là giáo viên chuyên dạy Toán 12 THPT. Hãy giải chi tiết bài toán sau đây bằng tiếng Việt.
 Định dạng câu hỏi: ${question_type || "Trắc nghiệm"}
 Nội dung đề bài:
 ${content}
 
 Yêu cầu bắt buộc:
 1. Sử dụng công thức LaTeX chuẩn: $...$ cho công thức trong dòng và $$...$$ cho công thức khối.
-2. Trả về ĐÚNG định dạng JSON với 2 trường:
+2. Trả về ĐÚNG định dạng JSON với 2 trường (không thêm markdown ngoài JSON):
 {
   "correct_answer": "Điền đáp án đúng (ví dụ: A hoặc B hoặc C hoặc D; hoặc a: Đúng | b: Sai...; hoặc số cụ thể)",
   "solution": "Lời giải chi tiết từng bước dễ hiểu bằng LaTeX"
 }
 `;
 
+    // Sử dụng model chuẩn gemini-1.5-flash
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -40,6 +41,14 @@ Yêu cầu bắt buộc:
     );
 
     const data = await res.json();
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: data.error?.message || "Lỗi từ dịch vụ Gemini API" },
+        { status: res.status },
+      );
+    }
+
     const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     const parsed = JSON.parse(resultText || "{}");
 

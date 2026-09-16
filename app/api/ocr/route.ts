@@ -7,7 +7,7 @@ export async function POST(req: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Chưa cấu hình GEMINI_API_KEY" },
+        { error: "Chưa cấu hình GEMINI_API_KEY trong biến môi trường." },
         { status: 500 },
       );
     }
@@ -19,14 +19,14 @@ Quy tắc:
 2. Nhận diện các lựa chọn A, B, C, D hoặc a, b, c, d nếu có trong ảnh.
 3. Trả về ĐÚNG định dạng JSON:
 {
-  "title": "Tóm tắt ngắn chủ đề (ví dụ: Đạo hàm hàm số, Tích phân từng phần)",
+  "title": "Tóm tắt ngắn chủ đề bài toán",
   "content": "Nội dung câu hỏi đề bài đầy đủ kèm các phương án bằng LaTeX",
-  "question_type": "mcq" // điền 'mcq' (trắc nghiệm 4 ý), 'true_false' (đúng sai) hoặc 'short_ans' (trả lời ngắn)
+  "question_type": "mcq"
 }
 `;
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -50,6 +50,14 @@ Quy tắc:
     );
 
     const data = await res.json();
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: data.error?.message || "Lỗi nhận diện ảnh từ Gemini API" },
+        { status: res.status },
+      );
+    }
+
     const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     const parsed = JSON.parse(resultText || "{}");
 

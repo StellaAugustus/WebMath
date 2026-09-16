@@ -303,54 +303,101 @@ export default function AdminPage() {
       {tab === "question" && (
         <div className="space-y-6">
           {/* KHU VỰC CHUYỂN ĐỔI HÌNH ẢNH SANG LATEX (OCR AI) */}
-          <div className="bg-blue-50/60 border border-blue-200 rounded-2xl p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
-              <span>📸</span> Chuyển đổi từ hình ảnh sang mã LaTeX (Math OCR)
+          {/* KHU VỰC DÁN ẢNH (CTRL + V) VÀ CHUYỂN ĐỔI LATEX */}
+          <div className="bg-white border-2 border-dashed border-blue-300 rounded-2xl p-6 shadow-sm hover:border-blue-500 transition">
+            <h2 className="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <span>📸</span> Chuyển ảnh bài toán sang mã LaTeX (Math OCR)
             </h2>
-            <p className="text-xs text-blue-700 mb-3">
-              Tải ảnh bài toán hoặc chụp màn hình rồi bấm{" "}
-              <strong>Ctrl + V</strong> để dán ảnh trực tiếp vào đây.
+            <p className="text-xs text-slate-500 mb-4">
+              Nhấp chuột vào khung bên dưới rồi nhấn <strong>Ctrl + V</strong>{" "}
+              để dán ảnh chụp màn hình, hoặc chọn ảnh từ máy.
             </p>
 
-            <div className="flex flex-wrap items-center gap-4">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) =>
-                  e.target.files?.[0] && handleImageUpload(e.target.files[0])
+            {/* Ô nhận sự kiện Ctrl + V */}
+            <div
+              tabIndex={0}
+              onPaste={(e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].type.startsWith("image/")) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                      handleImageUpload(file);
+                      e.preventDefault();
+                      break;
+                    }
+                  }
                 }
-                className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
-              />
+              }}
+              className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 text-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-blue-50 transition"
+            >
+              {!imagePreview ? (
+                <div className="space-y-2">
+                  <div className="text-3xl">📋</div>
+                  <div className="text-sm font-semibold text-blue-900">
+                    Bấm chuột vào đây rồi nhấn{" "}
+                    <kbd className="px-2 py-0.5 bg-white border border-slate-300 rounded text-xs shadow-sm">
+                      Ctrl
+                    </kbd>{" "}
+                    +{" "}
+                    <kbd className="px-2 py-0.5 bg-white border border-slate-300 rounded text-xs shadow-sm">
+                      V
+                    </kbd>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    hoặc tải ảnh từ máy tính
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) =>
+                      e.target.files?.[0] &&
+                      handleImageUpload(e.target.files[0])
+                    }
+                    className="mt-2 text-xs text-slate-500 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={imagePreview}
+                      alt="Ảnh dán"
+                      className="max-h-24 rounded-lg border border-slate-300 shadow-sm object-contain bg-white"
+                    />
+                    <div className="text-left">
+                      <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                        ✓ Đã nạp ảnh
+                      </span>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Sẵn sàng để chuyển sang LaTeX
+                      </p>
+                    </div>
+                  </div>
 
-              {imagePreview && (
-                <button
-                  type="button"
-                  onClick={handleConvertImageToLatex}
-                  disabled={ocrLoading}
-                  className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 transition disabled:bg-gray-400 flex items-center gap-1.5"
-                >
-                  {ocrLoading
-                    ? "⏳ Đang phân tích ảnh..."
-                    : "⚡ Chuyển ảnh sang mã LaTeX"}
-                </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleConvertImageToLatex}
+                      disabled={ocrLoading}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition disabled:bg-gray-400 shadow-sm flex items-center gap-1.5"
+                    >
+                      {ocrLoading
+                        ? "⏳ Đang quét ảnh..."
+                        : "⚡ Chuyển thành mã LaTeX"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImagePreview(null)}
+                      className="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-xs hover:bg-slate-100 transition"
+                    >
+                      Dán ảnh khác
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
-
-            {imagePreview && (
-              <div className="mt-3 flex items-center gap-3">
-                <img
-                  src={imagePreview}
-                  alt="Xem trước"
-                  className="max-h-24 rounded border border-slate-300 shadow-sm object-contain"
-                />
-                <button
-                  onClick={() => setImagePreview(null)}
-                  className="text-xs text-red-600 hover:underline"
-                >
-                  Xóa ảnh
-                </button>
-              </div>
-            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
