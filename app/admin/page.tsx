@@ -102,11 +102,15 @@ export default function AdminPage() {
     setOcrLoading(true);
 
     try {
-      const base64Data = imagePreview.split(",");
+      // Lưu ý có để lấy phần chuỗi dữ liệu sau dấu phẩy
+      const cleanBase64 = imagePreview.includes(",")
+        ? imagePreview.split(",")
+        : imagePreview;
+
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64Data, mimeType: imageMime }),
+        body: JSON.stringify({ imageBase64: cleanBase64, mimeType: imageMime }),
       });
 
       const data = await res.json();
@@ -118,7 +122,7 @@ export default function AdminPage() {
       } else {
         alert(
           "Lỗi nhận diện: " +
-            (data.error || "Vui lòng thử lại với ảnh rõ hơn."),
+            (data.error || "Vui lòng thử lại với ảnh rõ nét hơn."),
         );
       }
     } catch (err: any) {

@@ -12,6 +12,23 @@ export async function POST(req: Request) {
       );
     }
 
+    // Đảm bảo lấy đúng chuỗi String base64 thuần túy (loại bỏ hoàn toàn Array)
+    let cleanBase64 = "";
+    if (Array.isArray(imageBase64)) {
+      cleanBase64 = imageBase64 || imageBase64[0] || "";
+    } else if (typeof imageBase64 === "string") {
+      cleanBase64 = imageBase64.includes(",")
+        ? imageBase64.split(",")
+        : imageBase64;
+    }
+
+    if (!cleanBase64) {
+      return NextResponse.json(
+        { error: "Dữ liệu ảnh không hợp lệ." },
+        { status: 400 },
+      );
+    }
+
     const prompt = `
 Bạn là chuyên gia OCR tài liệu Toán học. Hãy đọc bức ảnh này và chuyển toàn bộ bài toán thành văn bản và mã LaTeX.
 Quy tắc:
@@ -25,40 +42,53 @@ Quy tắc:
 }
 `;
 
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
+    const payload = {
+      contents: [
+        {
+          parts: [
             {
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: mimeType || "image/jpeg",
-                    data: imageBase64,
-                  },
-                },
-                { text: prompt },
-              ],
+              inlineData: {
+                mimeType: mimeType || "image/jpeg",
+                data: cleanBase64,
+              },
             },
+            { text: prompt },
           ],
-          generationConfig: { responseMimeType: "application/json" },
-        }),
-      },
-    );
+        },
+      ],
+      generationConfig: { responseMimeType: "application/json" },
+    };
 
-    const data = await res.json();
+    const models = ["gemini-2.5-flash", "gemini-flash-latest"];
+    let lastError = "";
+    let resultData = null;
 
-    if (!res.ok) {
+    for (const model of models) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const data = await res.json();
+      if (res.ok) {
+        resultData = data;
+        break;
+      }
+      lastError = data.error?.message || `Lỗi từ model ${model}`;
+    }
+
+    if (!resultData) {
       return NextResponse.json(
-        { error: data.error?.message || "Lỗi nhận diện ảnh từ Gemini API" },
-        { status: res.status },
+        { error: lastError || "Không thể nhận diện ảnh." },
+        { status: 500 },
       );
     }
 
-    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const resultText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
     const parsed = JSON.parse(resultText || "{}");
 
     return NextResponse.json(parsed);

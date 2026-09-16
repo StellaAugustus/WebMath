@@ -27,29 +27,42 @@ Yêu cầu bắt buộc:
 }
 `;
 
-    // Sử dụng model chuẩn gemini-1.5-flash
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" },
-        }),
-      },
-    );
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json" },
+    };
 
-    const data = await res.json();
+    // Tự động thử model 2.5-flash và flash-latest
+    const models = ["gemini-2.5-flash", "gemini-flash-latest"];
+    let lastError = "";
+    let resultData = null;
 
-    if (!res.ok) {
+    for (const model of models) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const data = await res.json();
+      if (res.ok) {
+        resultData = data;
+        break;
+      }
+      lastError = data.error?.message || `Lỗi từ model ${model}`;
+    }
+
+    if (!resultData) {
       return NextResponse.json(
-        { error: data.error?.message || "Lỗi từ dịch vụ Gemini API" },
-        { status: res.status },
+        { error: lastError || "Không tìm thấy model AI khả dụng." },
+        { status: 500 },
       );
     }
 
-    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const resultText = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
     const parsed = JSON.parse(resultText || "{}");
 
     return NextResponse.json(parsed);
